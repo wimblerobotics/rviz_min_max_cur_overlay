@@ -4,46 +4,30 @@
 #include <memory>
 #include <string>
 
-// RViz includes
 #include <rviz_common/display.hpp>
-#include <rviz_common/display_context.hpp>
-#include <rviz_common/ros_integration/ros_node_abstraction_iface.hpp>
-#include <rviz_common/properties/bool_property.hpp>
-#include <rviz_common/properties/float_property.hpp>
-#include <rviz_common/properties/int_property.hpp>
-#include <rviz_common/properties/color_property.hpp>
-#include <rviz_common/properties/enum_property.hpp>
 #include <rviz_common/properties/ros_topic_property.hpp>
-
-// ROS includes
-#include <rclcpp/rclcpp.hpp>
+#include <rviz_common/properties/int_property.hpp>
+#include <rviz_common/properties/float_property.hpp>
+#include <rviz_common/properties/enum_property.hpp>
+#include <rviz_common/properties/color_property.hpp>
 #include <std_msgs/msg/color_rgba.hpp>
-#include "rviz_min_max_cur_overlay/msg/min_max_curr.hpp"
 
-// Ogre includes
-#include <OgreSceneNode.h>
+// Include OGRE headers
+#include <OgrePrerequisites.h>
 #include <OgreSceneManager.h>
+#include <OgreSceneNode.h>
 
 // Qt includes
-#include <QWidget>
-#include <QPainter>
-#include <QColor>
-#include <QImage>
-#include <QPixmap>
-#include <QPalette>
-#include <QApplication>
-#include <QThread>
+class QWidget;
+class QPainter;
 
-// Plugin export macros
-#include <pluginlib/class_list_macros.hpp>
-
-// Visibility control
-#include "rviz_min_max_cur_overlay/visibility_control.hpp"
+// Include our message type
+#include "rviz_min_max_cur_overlay/msg/min_max_curr.hpp"
 
 namespace rviz_min_max_cur_overlay
 {
 
-class RVIZ_MIN_MAX_CUR_OVERLAY_PUBLIC OverlayDisplay : public rviz_common::Display
+class OverlayDisplay : public rviz_common::Display
 {
   Q_OBJECT
 
@@ -66,8 +50,10 @@ private Q_SLOTS:
 private:
   void unsubscribe();
   bool validateMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
-  void drawHorizontal(QPainter & painter, const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
-  void drawVertical(QPainter & painter, const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
+  void drawHorizontal(QPainter & painter, 
+                     const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
+  void drawVertical(QPainter & painter, 
+                   const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
   void processMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
   QColor toQColor(const std_msgs::msg::ColorRGBA & color);
 

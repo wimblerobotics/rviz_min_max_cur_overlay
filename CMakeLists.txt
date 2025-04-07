@@ -1,18 +1,29 @@
 cmake_minimum_required(VERSION 3.8)
 project(rviz_min_max_cur_overlay)
 
-if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
-  add_compile_options(-Wall -Wextra -Wpedantic)
+# Set policy for Qt MOC
+if(POLICY CMP0071)
+  cmake_policy(SET CMP0071 NEW)
+endif()
+
+# Enable verbose output during build
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
+# Compiler flags
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic -fPIC)
 endif()
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find Qt5
-find_package(Qt5 REQUIRED COMPONENTS Widgets)
+# Qt setup - Remove the problematic AUTOMOC_MOC_OPTIONS
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-# Find dependencies
+# Find packages
+find_package(Qt5 REQUIRED COMPONENTS Widgets)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rviz_common REQUIRED)
@@ -20,81 +31,80 @@ find_package(rviz_rendering REQUIRED)
 find_package(rviz_default_plugins REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(OGRE REQUIRED)
+find_package(rviz_ogre_vendor REQUIRED)
 
-# Generate message files
+# Define message
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MinMaxCurr.msg"
-  DEPENDENCIES std_msgs geometry_msgs
+  DEPENDENCIES std_msgs
 )
 
-# Create the plugin library
+# Get typesupport
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+
+# Create a shared library
 add_library(overlay_display SHARED
   src/overlay_display.cpp
   include/rviz_min_max_cur_overlay/overlay_display.hpp
 )
 
-# Set visibility settings
+# Set library properties - Removed the AUTOMOC_MOC_OPTIONS property
 set_target_properties(overlay_display PROPERTIES
-  CXX_VISIBILITY_PRESET hidden
-  VISIBILITY_INLINES_HIDDEN ON
+  OUTPUT_NAME "overlay_display"
+  PREFIX "lib"
+  LINKER_LANGUAGE CXX
 )
 
-# Set include directories
-target_include_directories(overlay_display
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-  PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+# Include directories
+target_include_directories(overlay_display PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${OGRE_INCLUDE_DIRS}
 )
 
-# Get the typesupport target for the messages
-rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+# Add component dependencies
+ament_target_dependencies(overlay_display
+  rclcpp
+  rviz_common
+  rviz_rendering
+  rviz_default_plugins
+  pluginlib
+  std_msgs
+)
 
-# Make sure the plugin is built after message generation
-add_dependencies(overlay_display ${PROJECT_NAME}__rosidl_typesupport_cpp)
-
-# Link against dependencies
+# Link libraries
 target_link_libraries(overlay_display
   Qt5::Widgets
-  rclcpp::rclcpp
-  rviz_common::rviz_common
-  rviz_rendering::rviz_rendering
-  rviz_default_plugins::rviz_default_plugins
-  pluginlib::pluginlib
-  ${PROJECT_NAME}__rosidl_typesupport_cpp
+  ${OGRE_LIBRARIES}
+  "${cpp_typesupport_target}"
 )
 
-# Install the library
+# Ensure message generation completes before building the plugin
+add_dependencies(overlay_display ${PROJECT_NAME})
+
+# Installation
 install(TARGETS overlay_display
-  EXPORT export_${PROJECT_NAME}
+  EXPORT export_overlay_display
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
 
-# Install headers
 install(DIRECTORY include/
   DESTINATION include
 )
 
-# Install plugin description
 install(FILES plugin_description.xml
   DESTINATION share/${PROJECT_NAME}
 )
 
-# Register the plugin with rviz_common
+# Export plugin
 pluginlib_export_plugin_description_file(rviz_common plugin_description.xml)
 
-# Export targets
-ament_export_targets(export_${PROJECT_NAME})
-
-# Export libraries
-ament_export_libraries(overlay_display)
-
 # Export dependencies
+ament_export_targets(export_overlay_display HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   rviz_common
@@ -102,7 +112,7 @@ ament_export_dependencies(
   rviz_default_plugins
   pluginlib
   std_msgs
-  geometry_msgs
+  Qt5
 )
 
 ament_package()

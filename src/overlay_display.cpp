@@ -1,5 +1,4 @@
 #include "rviz_min_max_cur_overlay/overlay_display.hpp"
-#include <pluginlib/class_list_macros.hpp>
 
 #include <memory>
 #include <string>
@@ -16,8 +15,6 @@
 
 #include <rviz_common/display_context.hpp>
 #include <rviz_common/ros_integration/ros_node_abstraction_iface.hpp>
-
-PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Display)
 
 namespace rviz_min_max_cur_overlay
 {
@@ -81,8 +78,9 @@ OverlayDisplay::OverlayDisplay()
 OverlayDisplay::~OverlayDisplay()
 {
   unsubscribe();
-  if (scene_node_) {
+  if (scene_node_ && scene_manager_) {
     scene_manager_->destroySceneNode(scene_node_);
+    scene_node_ = nullptr;
   }
 }
 
@@ -433,3 +431,6 @@ void OverlayDisplay::fixedFrameChanged()
 }
 
 }  // namespace rviz_min_max_cur_overlay
+
+#include <pluginlib/class_list_macros.hpp>
+PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Display)
