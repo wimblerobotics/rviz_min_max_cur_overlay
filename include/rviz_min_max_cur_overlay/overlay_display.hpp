@@ -4,47 +4,90 @@
 #include <memory>
 #include <string>
 
+// RViz includes
 #include <rviz_common/display.hpp>
 #include <rviz_common/properties/ros_topic_property.hpp>
 #include <rviz_common/properties/int_property.hpp>
 #include <rviz_common/properties/float_property.hpp>
 #include <rviz_common/properties/enum_property.hpp>
 #include <rviz_common/properties/color_property.hpp>
+
+// ROS message includes
 #include <std_msgs/msg/color_rgba.hpp>
 
-// Include OGRE headers
-#include <OgrePrerequisites.h>
-#include <OgreSceneManager.h>
+// OGRE includes
 #include <OgreSceneNode.h>
+#include <OgreSceneManager.h>
 
 // Qt includes
 class QWidget;
 class QPainter;
 
-// Include our message type
+// Our message type
 #include "rviz_min_max_cur_overlay/msg/min_max_curr.hpp"
 
 namespace rviz_min_max_cur_overlay
 {
 
+/**
+ * @class OverlayDisplay
+ * @brief Display plugin for RViz that shows min/max/current values as an overlay
+ */
 class OverlayDisplay : public rviz_common::Display
 {
   Q_OBJECT
 
 public:
+  /**
+   * @brief Constructor
+   */
   OverlayDisplay();
-  virtual ~OverlayDisplay() override;
+  
+  /**
+   * @brief Destructor
+   */
+  ~OverlayDisplay() override;
 
 protected:
+  /**
+   * @brief Initialize the display
+   */
   void onInitialize() override;
+  
+  /**
+   * @brief Reset the display
+   */
   void reset() override;
+  
+  /**
+   * @brief Called when the display is enabled
+   */
   void onEnable() override;
+  
+  /**
+   * @brief Called when the display is disabled
+   */
   void onDisable() override;
+  
+  /**
+   * @brief Update the display
+   */
   void update(float wall_dt, float ros_dt) override;
+  
+  /**
+   * @brief Called when the fixed frame changes
+   */
   void fixedFrameChanged() override;
 
 private Q_SLOTS:
+  /**
+   * @brief Update the subscribed topic
+   */
   void updateTopic();
+  
+  /**
+   * @brief Update the visualization
+   */
   void updateVisualization();
 
 private:

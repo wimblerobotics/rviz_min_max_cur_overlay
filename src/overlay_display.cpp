@@ -1,20 +1,35 @@
 #include "rviz_min_max_cur_overlay/overlay_display.hpp"
 
+// Export the plugin class first to ensure proper symbol linkage
+#include <pluginlib/class_list_macros.hpp>
+PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Display)
+
+// Standard includes
 #include <memory>
 #include <string>
 
+// Qt includes
 #include <QPainter>
 #include <QFontMetrics>
 #include <QTextOption>
 #include <QDir>
 #include <QBitmap>
 #include <QPalette>
-#include <QApplication>
-#include <QThread>
-#include <rosidl_runtime_cpp/traits.hpp>
 
+// ROS includes
 #include <rviz_common/display_context.hpp>
 #include <rviz_common/ros_integration/ros_node_abstraction_iface.hpp>
+#include <rviz_common/validate_floats.hpp>
+
+// Create a new function to validate floats in our custom message type
+bool validateMinMaxCurrMsg(const rviz_min_max_cur_overlay::msg::MinMaxCurr & msg)
+{
+  // Check each float field
+  return rviz_common::validateFloats(msg.min) &&
+         rviz_common::validateFloats(msg.max) &&
+         rviz_common::validateFloats(msg.current) &&
+         rviz_common::validateFloats(msg.current_color);
+}
 
 namespace rviz_min_max_cur_overlay
 {
@@ -22,15 +37,12 @@ namespace rviz_min_max_cur_overlay
 OverlayDisplay::OverlayDisplay()
 : Display()
 {
-  // Initialize topic property with explicit message type
-  const QString message_type = QString::fromStdString(
-    rosidl_generator_traits::data_type<rviz_min_max_cur_overlay::msg::MinMaxCurr>());
-  
+  // Initialize topic property - this is critical for correct functionality
+  // Note the exact message type name must match what's registered with ROS
   topic_property_ = new rviz_common::properties::RosTopicProperty(
-    "Topic",
-    "",
-    message_type,
-    "Topic to subscribe to. Must be of type rviz_min_max_cur_overlay/msg/MinMaxCurr",
+    "Topic", "",
+    "rviz_min_max_cur_overlay/msg/MinMaxCurr",
+    "Topic to subscribe to for min/max/current values",
     this,
     SLOT(updateTopic()));
 
@@ -87,42 +99,21 @@ OverlayDisplay::~OverlayDisplay()
 void OverlayDisplay::onInitialize()
 {
   Display::onInitialize();
-  
-  // Ensure we have a valid context
-  if (!context_) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "Context",
-      "No valid context");
+
+  if (!scene_manager_) {
+    setStatus(rviz_common::properties::StatusProperty::Error, "Scene Manager", "No scene manager found");
     return;
   }
 
-  // Get the ROS node abstraction
-  auto node_abstraction = context_->getRosNodeAbstraction().lock();
-  if (!node_abstraction) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "ROS",
-      "No ROS node abstraction available");
-    return;
-  }
-
-  // Get the raw node
-  auto raw_node = node_abstraction->get_raw_node();
-  if (!raw_node) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "ROS",
-      "No ROS node available");
-    return;
-  }
-
-  // Initialize the scene node
   scene_node_ = scene_manager_->getRootSceneNode()->createChildSceneNode();
-  
-  // Create the overlay widget
+
+  // Create the overlay widget for display
   overlay_widget_ = std::make_unique<QWidget>();
   overlay_widget_->setAttribute(Qt::WA_TranslucentBackground);
   overlay_widget_->setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
   overlay_widget_->setAutoFillBackground(true);
 
+  // Create an initial subscription
   updateTopic();
 }
 
@@ -367,61 +358,60 @@ void OverlayDisplay::updateVisualization()
 
 void OverlayDisplay::updateTopic()
 {
-  // Unsubscribe from the previous topic
+  // First unsubscribe from any existing topic
   unsubscribe();
 
+  // Only proceed if we're enabled
   if (!isEnabled()) {
     return;
   }
 
+  // Validate the topic_property
   if (!topic_property_) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "Topic",
-      "No topic property available");
+    setStatus(rviz_common::properties::StatusProperty::Error, "Topic", "Invalid topic property");
     return;
   }
 
+  // Get the topic string
   const std::string topic_str = topic_property_->getTopicStd();
-
   if (topic_str.empty()) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "Topic",
-      "No topic set");
+    setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", "No topic set");
     return;
   }
 
+  // Get the ROS node from the context
+  if (!context_) {
+    setStatus(rviz_common::properties::StatusProperty::Error, "Context", "No valid display context");
+    return;
+  }
+
+  auto node_abstraction = context_->getRosNodeAbstraction().lock();
+  if (!node_abstraction) {
+    setStatus(rviz_common::properties::StatusProperty::Error, "ROS", "No ROS node abstraction available");
+    return;
+  }
+
+  auto node = node_abstraction->get_raw_node();
+  if (!node) {
+    setStatus(rviz_common::properties::StatusProperty::Error, "ROS", "No ROS node available");
+    return;
+  }
+
+  // Create the subscription with proper error handling
   try {
-    auto node_abstraction = context_->getRosNodeAbstraction().lock();
-    if (!node_abstraction) {
-      setStatus(
-        rviz_common::properties::StatusProperty::Error, "Topic",
-        "No node abstraction");
-      return;
-    }
-
-    auto raw_node = node_abstraction->get_raw_node();
-    if (!raw_node) {
-      setStatus(
-        rviz_common::properties::StatusProperty::Error, "Topic",
-        "No raw node");
-      return;
-    }
-
-    // Subscribe to the topic
-    subscriber_ = raw_node->create_subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>(
+    rclcpp::QoS qos(10);
+    subscriber_ = node->create_subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>(
       topic_str,
-      10,
+      qos,
       [this](const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr msg) {
-        processMessage(msg);
+        if (msg && validateMinMaxCurrMsg(*msg)) {  // Use our custom validation function
+          this->processMessage(msg);
+        }
       });
 
-    setStatus(
-      rviz_common::properties::StatusProperty::Ok, "Topic",
-      "OK");
+    setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", QString::fromStdString(topic_str));
   } catch (const std::exception & e) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "Topic",
-      QString("Error subscribing to topic: ") + e.what());
+    setStatus(rviz_common::properties::StatusProperty::Error, "Topic", QString("Error: ") + e.what());
   }
 }
 
@@ -431,6 +421,3 @@ void OverlayDisplay::fixedFrameChanged()
 }
 
 }  // namespace rviz_min_max_cur_overlay
-
-#include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Display)
