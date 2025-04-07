@@ -1,0 +1,9 @@
+<library path="rviz_min_max_cur_overlay_plugin">
+  <class name="rviz_min_max_cur_overlay/MinMaxCurOverlay"
+         type="rviz_min_max_cur_overlay::OverlayDisplay"
+         base_class_type="rviz_common::Display">
+    <description>
+      Displays min/max/current values as an overlay with configurable orientation and style.
+    </description>
+  </class>
+</library>
