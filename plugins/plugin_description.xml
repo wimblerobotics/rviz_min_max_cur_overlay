@@ -1,7 +1,6 @@
 <?xml version="1.0"?>
 <library path="overlay_display">
-  <class name="rviz_min_max_cur_overlay/OverlayDisplay"
-         type="rviz_min_max_cur_overlay::OverlayDisplay"
+  <class type="rviz_min_max_cur_overlay::OverlayDisplay"
          base_class_type="rviz_common::Display">
     <description>
       Displays min/max/current values as an overlay.

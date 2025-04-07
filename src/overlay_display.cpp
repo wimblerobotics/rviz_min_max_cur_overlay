@@ -1,22 +1,43 @@
 #include "rviz_min_max_cur_overlay/overlay_display.hpp"
+#include <pluginlib/class_list_macros.hpp>
+
+#include <memory>
+#include <string>
 
 #include <QPainter>
 #include <QFontMetrics>
 #include <QTextOption>
+#include <QDir>
+#include <QBitmap>
+#include <QPalette>
+#include <QApplication>
+#include <QThread>
+#include <rosidl_runtime_cpp/traits.hpp>
+
+#include <rviz_common/display_context.hpp>
+#include <rviz_common/ros_integration/ros_node_abstraction_iface.hpp>
+
+PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Display)
 
 namespace rviz_min_max_cur_overlay
 {
 
 OverlayDisplay::OverlayDisplay()
-: scene_node_(nullptr)
+: Display()
 {
+  // Initialize topic property with explicit message type
+  const QString message_type = QString::fromStdString(
+    rosidl_generator_traits::data_type<rviz_min_max_cur_overlay::msg::MinMaxCurr>());
+  
   topic_property_ = new rviz_common::properties::RosTopicProperty(
-    "Topic", "",
-    "rviz_min_max_cur_overlay/msg/MinMaxCurr",
-    "Topic to subscribe to.",
-    this, SLOT(updateTopic()));
+    "Topic",
+    "",
+    message_type,
+    "Topic to subscribe to. Must be of type rviz_min_max_cur_overlay/msg/MinMaxCurr",
+    this,
+    SLOT(updateTopic()));
 
-  // Initialize properties
+  // Initialize other properties
   width_property_ = new rviz_common::properties::IntProperty(
     "Width", 200, "Width of the overlay in pixels", this, SLOT(updateVisualization()));
   width_property_->setMin(10);
@@ -56,8 +77,10 @@ OverlayDisplay::OverlayDisplay()
     SLOT(updateVisualization()));
 }
 
+// Explicitly define the destructor
 OverlayDisplay::~OverlayDisplay()
 {
+  unsubscribe();
   if (scene_node_) {
     scene_manager_->destroySceneNode(scene_node_);
   }
@@ -67,20 +90,70 @@ void OverlayDisplay::onInitialize()
 {
   Display::onInitialize();
   
+  // Ensure we have a valid context
+  if (!context_) {
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "Context",
+      "No valid context");
+    return;
+  }
+
+  // Get the ROS node abstraction
+  auto node_abstraction = context_->getRosNodeAbstraction().lock();
+  if (!node_abstraction) {
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "ROS",
+      "No ROS node abstraction available");
+    return;
+  }
+
+  // Get the raw node
+  auto raw_node = node_abstraction->get_raw_node();
+  if (!raw_node) {
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "ROS",
+      "No ROS node available");
+    return;
+  }
+
+  // Initialize the scene node
   scene_node_ = scene_manager_->getRootSceneNode()->createChildSceneNode();
   
   // Create the overlay widget
   overlay_widget_ = std::make_unique<QWidget>();
   overlay_widget_->setAttribute(Qt::WA_TranslucentBackground);
   overlay_widget_->setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-  
+  overlay_widget_->setAutoFillBackground(true);
+
   updateTopic();
+}
+
+void OverlayDisplay::onEnable()
+{
+  Display::onEnable();
+  if (overlay_widget_) {
+    overlay_widget_->show();
+  }
+  updateVisualization();
+}
+
+void OverlayDisplay::onDisable()
+{
+  Display::onDisable();
+  if (overlay_widget_) {
+    overlay_widget_->hide();
+  }
 }
 
 void OverlayDisplay::reset()
 {
   Display::reset();
   updateVisualization();
+}
+
+void OverlayDisplay::unsubscribe()
+{
+  subscriber_.reset();
 }
 
 void OverlayDisplay::update(float wall_dt, float ros_dt)
@@ -179,18 +252,14 @@ void OverlayDisplay::drawHorizontal(
     painter.drawLine(cur_x, 0, cur_x, height);
     painter.setPen(text_color);
     painter.drawText(
-      QRect(cur_x - cur_width / 2, height + 5, cur_width, font_size),
-      Qt::AlignHCenter | Qt::AlignTop, cur_str);
+      QRect(cur_x - cur_width/2, -font_size - 5, cur_width, font_size),
+      Qt::AlignCenter, cur_str);
   } else {
     // Draw rectangle mode
-    int rect_width = cur_width + 10;  // Add padding
-    int rect_x = std::max(0, std::min(width - rect_width, cur_x - rect_width / 2));
-    
-    painter.setPen(current_color);
-    painter.drawRect(rect_x, 2, rect_width, height - 4);
+    painter.fillRect(0, 0, cur_x, height, current_color);
     painter.setPen(text_color);
     painter.drawText(
-      QRect(rect_x, 2, rect_width, height - 4),
+      QRect(cur_x/2 - cur_width/2, 0, cur_width, height),
       Qt::AlignCenter, cur_str);
   }
 }
@@ -242,18 +311,14 @@ void OverlayDisplay::drawVertical(
     painter.drawLine(0, cur_y, width, cur_y);
     painter.setPen(text_color);
     painter.drawText(
-      QRect(width + 5, cur_y - font_size / 2, cur_width, font_size),
+      QRect(width + 5, cur_y - font_size/2, cur_width, font_size),
       Qt::AlignLeft | Qt::AlignVCenter, cur_str);
   } else {
     // Draw rectangle mode
-    int rect_height = font_size + 10;  // Add padding
-    int rect_y = std::max(0, std::min(height - rect_height, cur_y - rect_height / 2));
-    
-    painter.setPen(current_color);
-    painter.drawRect(2, rect_y, width - 4, rect_height);
+    painter.fillRect(0, cur_y, width, height - cur_y, current_color);
     painter.setPen(text_color);
     painter.drawText(
-      QRect(2, rect_y, width - 4, rect_height),
+      QRect(0, cur_y + (height - cur_y)/2 - font_size/2, width, font_size),
       Qt::AlignCenter, cur_str);
   }
 }
@@ -273,16 +338,19 @@ void OverlayDisplay::updateVisualization()
 
   overlay_widget_->setFixedSize(width, height);
 
-  QImage image(width, height, QImage::Format_ARGB32);
-  image.fill(Qt::transparent);
+  // Create a new QPixmap for drawing
+  QPixmap pixmap(width, height);
+  pixmap.fill(Qt::transparent);
 
-  QPainter painter(&image);
-  painter.setRenderHint(QPainter::Antialiasing, true);
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing);
 
-  // Draw background and border
+  // Draw background
+  painter.fillRect(0, 0, width, height, bg_color);
+
+  // Draw border
   painter.setPen(QPen(text_color, border_width));
-  painter.setBrush(bg_color);
-  painter.drawRect(0, 0, width - 1, height - 1);
+  painter.drawRect(0, 0, width-1, height-1);
 
   if (last_msg_) {
     if (is_horizontal) {
@@ -292,39 +360,76 @@ void OverlayDisplay::updateVisualization()
     }
   }
 
-  painter.end();
-
-  // Update the widget with the new image
-  overlay_widget_->setStyleSheet(QString("background-image: url(%1);").arg(
-    QPixmap::fromImage(image).toImage().save("temp.png")));
+  // Set the pixmap as the widget's background
+  QPalette palette = overlay_widget_->palette();
+  palette.setBrush(QPalette::Window, QBrush(pixmap));
+  overlay_widget_->setPalette(palette);
   overlay_widget_->update();
 }
 
 void OverlayDisplay::updateTopic()
 {
+  // Unsubscribe from the previous topic
   unsubscribe();
-  reset();
-  
-  // Subscribe to the topic
-  if (!topic_property_->getTopicStd().empty()) {
-    try {
-      rclcpp::Node::SharedPtr node = context_->getRosNodeAbstraction().lock()->get_raw_node();
-      subscriber_ = node->create_subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>(
-        topic_property_->getTopicStd(),
-        10,
-        [this](const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg) {
-          processMessage(msg);
-        });
-      setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", "OK");
-    } catch (const rclcpp::exceptions::RCLError & e) {
+
+  if (!isEnabled()) {
+    return;
+  }
+
+  if (!topic_property_) {
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "Topic",
+      "No topic property available");
+    return;
+  }
+
+  const std::string topic_str = topic_property_->getTopicStd();
+
+  if (topic_str.empty()) {
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "Topic",
+      "No topic set");
+    return;
+  }
+
+  try {
+    auto node_abstraction = context_->getRosNodeAbstraction().lock();
+    if (!node_abstraction) {
       setStatus(
         rviz_common::properties::StatusProperty::Error, "Topic",
-        QString("Error subscribing: ") + e.what());
+        "No node abstraction");
+      return;
     }
+
+    auto raw_node = node_abstraction->get_raw_node();
+    if (!raw_node) {
+      setStatus(
+        rviz_common::properties::StatusProperty::Error, "Topic",
+        "No raw node");
+      return;
+    }
+
+    // Subscribe to the topic
+    subscriber_ = raw_node->create_subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>(
+      topic_str,
+      10,
+      [this](const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr msg) {
+        processMessage(msg);
+      });
+
+    setStatus(
+      rviz_common::properties::StatusProperty::Ok, "Topic",
+      "OK");
+  } catch (const std::exception & e) {
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "Topic",
+      QString("Error subscribing to topic: ") + e.what());
   }
 }
 
-}  // namespace rviz_min_max_cur_overlay
+void OverlayDisplay::fixedFrameChanged()
+{
+  // Nothing to do here since we don't use transforms
+}
 
-#include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Display)
+}  // namespace rviz_min_max_cur_overlay
