@@ -11,6 +11,7 @@
 #include <rviz_common/properties/float_property.hpp>
 #include <rviz_common/properties/enum_property.hpp>
 #include <rviz_common/properties/color_property.hpp>
+#include <rviz_common/properties/string_property.hpp>
 
 // ROS message includes
 #include <std_msgs/msg/color_rgba.hpp>
@@ -25,6 +26,9 @@ class QPainter;
 
 // Our message type
 #include "rviz_min_max_cur_overlay/msg/min_max_curr.hpp"
+
+// Custom widget includes
+#include "rviz_min_max_cur_overlay/topic_input_widget.hpp"
 
 namespace rviz_min_max_cur_overlay
 {
@@ -104,7 +108,7 @@ private:
   rclcpp::Subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>::SharedPtr subscriber_;
   
   // Properties
-  rviz_common::properties::RosTopicProperty* topic_property_{nullptr};
+  rviz_common::properties::RosTopicProperty* topic_property_{nullptr}; // Use RosTopicProperty
   rviz_common::properties::IntProperty* width_property_{nullptr};
   rviz_common::properties::IntProperty* height_property_{nullptr};
   rviz_common::properties::EnumProperty* orientation_property_{nullptr};
@@ -114,6 +118,10 @@ private:
   rviz_common::properties::IntProperty* font_size_property_{nullptr};
   rviz_common::properties::ColorProperty* background_color_property_{nullptr};
   rviz_common::properties::ColorProperty* text_color_property_{nullptr};
+
+  // Custom Topic Input Widget
+  TopicInputWidget* topic_input_widget_{nullptr};
+  QWidget* property_panel_{nullptr};
 
   // Message storage
   rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr last_msg_;

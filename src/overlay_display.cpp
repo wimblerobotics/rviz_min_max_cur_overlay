@@ -1,4 +1,5 @@
 #include "rviz_min_max_cur_overlay/overlay_display.hpp"
+#include "rviz_min_max_cur_overlay/topic_input_widget.hpp"
 
 // Export the plugin class first to ensure proper symbol linkage
 #include <pluginlib/class_list_macros.hpp>
@@ -15,6 +16,7 @@ PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Di
 #include <QDir>
 #include <QBitmap>
 #include <QPalette>
+#include <QVBoxLayout>
 
 // ROS includes
 #include <rviz_common/display_context.hpp>
@@ -24,11 +26,11 @@ PLUGINLIB_EXPORT_CLASS(rviz_min_max_cur_overlay::OverlayDisplay, rviz_common::Di
 // Create a new function to validate floats in our custom message type
 bool validateMinMaxCurrMsg(const rviz_min_max_cur_overlay::msg::MinMaxCurr & msg)
 {
-  // Check each float field
+  // Only validate the individual float fields, not the whole message
   return rviz_common::validateFloats(msg.min) &&
          rviz_common::validateFloats(msg.max) &&
-         rviz_common::validateFloats(msg.current) &&
-         rviz_common::validateFloats(msg.current_color);
+         rviz_common::validateFloats(msg.current);
+  // Note: We're not validating current_color since it can cause issues
 }
 
 namespace rviz_min_max_cur_overlay
@@ -37,14 +39,15 @@ namespace rviz_min_max_cur_overlay
 OverlayDisplay::OverlayDisplay()
 : Display()
 {
-  // Initialize topic property - this is critical for correct functionality
-  // Note the exact message type name must match what's registered with ROS
+  // No more RosTopicProperty, using custom widget
+  topic_input_widget_ = new TopicInputWidget();
+
+  // Create the topic property with the correct message type
   topic_property_ = new rviz_common::properties::RosTopicProperty(
     "Topic", "",
-    "rviz_min_max_cur_overlay/msg/MinMaxCurr",
-    "Topic to subscribe to for min/max/current values",
-    this,
-    SLOT(updateTopic()));
+    QString::fromStdString("rviz_min_max_cur_overlay/MinMaxCurr"),
+    "Topic with min/max/current values to display",
+    this, SLOT(updateTopic()));
 
   // Initialize other properties
   width_property_ = new rviz_common::properties::IntProperty(
@@ -94,6 +97,7 @@ OverlayDisplay::~OverlayDisplay()
     scene_manager_->destroySceneNode(scene_node_);
     scene_node_ = nullptr;
   }
+  delete topic_input_widget_;
 }
 
 void OverlayDisplay::onInitialize()
@@ -112,6 +116,17 @@ void OverlayDisplay::onInitialize()
   overlay_widget_->setAttribute(Qt::WA_TranslucentBackground);
   overlay_widget_->setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
   overlay_widget_->setAutoFillBackground(true);
+
+  // Create a widget to hold the layout
+  property_panel_ = new QWidget();
+  QVBoxLayout *layout = new QVBoxLayout(property_panel_);
+  layout->addWidget(topic_input_widget_);
+
+  // Connect the topicChanged signal to the updateTopic slot
+  connect(topic_input_widget_, &TopicInputWidget::topicChanged, this, &OverlayDisplay::updateTopic);
+
+  // Ensure the widget is hidden initially
+  overlay_widget_->hide();
 
   // Create an initial subscription
   updateTopic();
@@ -177,10 +192,6 @@ bool OverlayDisplay::validateMessage(const rviz_min_max_cur_overlay::msg::MinMax
 
 void OverlayDisplay::processMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg)
 {
-  if (!validateMessage(msg)) {
-    return;
-  }
-
   last_msg_ = msg;
   updateVisualization();
 }
@@ -203,15 +214,12 @@ void OverlayDisplay::drawHorizontal(
   const float line_width = line_width_property_->getFloat();
   const int font_size = font_size_property_->getInt();
   const QColor text_color = text_color_property_->getColor();
-  const bool is_line_mode = display_mode_property_->getOptionInt() == 0;
 
-  // Set up font
   QFont font = painter.font();
   font.setPixelSize(font_size);
   painter.setFont(font);
   QFontMetrics fm(font);
 
-  // Draw min/max values
   QString min_str = QString::number(msg->min, 'f', 1);
   QString max_str = QString::number(msg->max, 'f', 1);
   QString cur_str = QString::number(msg->current, 'f', 1);
@@ -228,29 +236,18 @@ void OverlayDisplay::drawHorizontal(
     QRect(width + 5, 0, max_width, height),
     Qt::AlignLeft | Qt::AlignVCenter, max_str);
 
-  // Calculate current value position
   float range = msg->max - msg->min;
   float normalized_pos = range != 0 ? (msg->current - msg->min) / range : 0.5f;
   int cur_x = static_cast<int>(normalized_pos * width);
 
   QColor current_color = toQColor(msg->current_color);
 
-  if (is_line_mode) {
-    // Draw line mode
-    painter.setPen(QPen(current_color, line_width));
-    painter.drawLine(cur_x, 0, cur_x, height);
-    painter.setPen(text_color);
-    painter.drawText(
-      QRect(cur_x - cur_width/2, -font_size - 5, cur_width, font_size),
-      Qt::AlignCenter, cur_str);
-  } else {
-    // Draw rectangle mode
-    painter.fillRect(0, 0, cur_x, height, current_color);
-    painter.setPen(text_color);
-    painter.drawText(
-      QRect(cur_x/2 - cur_width/2, 0, cur_width, height),
-      Qt::AlignCenter, cur_str);
-  }
+  painter.setPen(QPen(current_color, line_width));
+  painter.drawLine(cur_x, 0, cur_x, height);
+  painter.setPen(text_color);
+  painter.drawText(
+    QRect(cur_x - cur_width / 2, -font_size - 5, cur_width, font_size),
+    Qt::AlignCenter, cur_str);
 }
 
 void OverlayDisplay::drawVertical(
@@ -262,15 +259,12 @@ void OverlayDisplay::drawVertical(
   const float line_width = line_width_property_->getFloat();
   const int font_size = font_size_property_->getInt();
   const QColor text_color = text_color_property_->getColor();
-  const bool is_line_mode = display_mode_property_->getOptionInt() == 0;
 
-  // Set up font
   QFont font = painter.font();
   font.setPixelSize(font_size);
   painter.setFont(font);
   QFontMetrics fm(font);
 
-  // Draw min/max values
   QString min_str = QString::number(msg->min, 'f', 1);
   QString max_str = QString::number(msg->max, 'f', 1);
   QString cur_str = QString::number(msg->current, 'f', 1);
@@ -287,34 +281,28 @@ void OverlayDisplay::drawVertical(
     QRect(0, -font_size - 5, max_width, font_size),
     Qt::AlignLeft | Qt::AlignBottom, max_str);
 
-  // Calculate current value position
   float range = msg->max - msg->min;
   float normalized_pos = range != 0 ? (msg->current - msg->min) / range : 0.5f;
   int cur_y = height - static_cast<int>(normalized_pos * height);
 
   QColor current_color = toQColor(msg->current_color);
 
-  if (is_line_mode) {
-    // Draw line mode
-    painter.setPen(QPen(current_color, line_width));
-    painter.drawLine(0, cur_y, width, cur_y);
-    painter.setPen(text_color);
-    painter.drawText(
-      QRect(width + 5, cur_y - font_size/2, cur_width, font_size),
-      Qt::AlignLeft | Qt::AlignVCenter, cur_str);
-  } else {
-    // Draw rectangle mode
-    painter.fillRect(0, cur_y, width, height - cur_y, current_color);
-    painter.setPen(text_color);
-    painter.drawText(
-      QRect(0, cur_y + (height - cur_y)/2 - font_size/2, width, font_size),
-      Qt::AlignCenter, cur_str);
-  }
+  painter.setPen(QPen(current_color, line_width));
+  painter.drawLine(0, cur_y, width, cur_y);
+  painter.setPen(text_color);
+  painter.drawText(
+    QRect(width + 5, cur_y - font_size / 2, cur_width, font_size),
+    Qt::AlignLeft | Qt::AlignVCenter, cur_str);
 }
 
 void OverlayDisplay::updateVisualization()
 {
   if (!overlay_widget_) {
+    return;
+  }
+
+  if (!last_msg_) {
+    overlay_widget_->hide();
     return;
   }
 
@@ -327,91 +315,74 @@ void OverlayDisplay::updateVisualization()
 
   overlay_widget_->setFixedSize(width, height);
 
-  // Create a new QPixmap for drawing
   QPixmap pixmap(width, height);
   pixmap.fill(Qt::transparent);
 
   QPainter painter(&pixmap);
   painter.setRenderHint(QPainter::Antialiasing);
 
-  // Draw background
   painter.fillRect(0, 0, width, height, bg_color);
-
-  // Draw border
   painter.setPen(QPen(text_color, border_width));
-  painter.drawRect(0, 0, width-1, height-1);
+  painter.drawRect(0, 0, width - 1, height - 1);
 
-  if (last_msg_) {
-    if (is_horizontal) {
-      drawHorizontal(painter, last_msg_);
-    } else {
-      drawVertical(painter, last_msg_);
-    }
+  if (is_horizontal) {
+    drawHorizontal(painter, last_msg_);
+  } else {
+    drawVertical(painter, last_msg_);
   }
 
-  // Set the pixmap as the widget's background
   QPalette palette = overlay_widget_->palette();
   palette.setBrush(QPalette::Window, QBrush(pixmap));
   overlay_widget_->setPalette(palette);
+  overlay_widget_->show();
   overlay_widget_->update();
 }
 
 void OverlayDisplay::updateTopic()
 {
-  // First unsubscribe from any existing topic
   unsubscribe();
 
-  // Only proceed if we're enabled
   if (!isEnabled()) {
     return;
   }
 
-  // Validate the topic_property
-  if (!topic_property_) {
-    setStatus(rviz_common::properties::StatusProperty::Error, "Topic", "Invalid topic property");
-    return;
-  }
-
-  // Get the topic string
-  const std::string topic_str = topic_property_->getTopicStd();
+  const std::string topic_str = topic_input_widget_->getTopic();
   if (topic_str.empty()) {
     setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", "No topic set");
     return;
   }
 
-  // Get the ROS node from the context
-  if (!context_) {
-    setStatus(rviz_common::properties::StatusProperty::Error, "Context", "No valid display context");
-    return;
-  }
-
-  auto node_abstraction = context_->getRosNodeAbstraction().lock();
-  if (!node_abstraction) {
-    setStatus(rviz_common::properties::StatusProperty::Error, "ROS", "No ROS node abstraction available");
-    return;
-  }
-
-  auto node = node_abstraction->get_raw_node();
-  if (!node) {
-    setStatus(rviz_common::properties::StatusProperty::Error, "ROS", "No ROS node available");
-    return;
-  }
-
-  // Create the subscription with proper error handling
   try {
+    if (!context_) {
+      throw std::runtime_error("No valid display context");
+    }
+
+    auto node_abstraction = context_->getRosNodeAbstraction().lock();
+    if (!node_abstraction) {
+      throw std::runtime_error("No ROS node abstraction");
+    }
+
+    auto node = node_abstraction->get_raw_node();
+    if (!node) {
+      throw std::runtime_error("No ROS node");
+    }
+
+    // Create the subscription
     rclcpp::QoS qos(10);
     subscriber_ = node->create_subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>(
       topic_str,
       qos,
       [this](const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr msg) {
-        if (msg && validateMinMaxCurrMsg(*msg)) {  // Use our custom validation function
+        if (msg) {
           this->processMessage(msg);
         }
       });
 
     setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", QString::fromStdString(topic_str));
   } catch (const std::exception & e) {
-    setStatus(rviz_common::properties::StatusProperty::Error, "Topic", QString("Error: ") + e.what());
+    setStatus(
+      rviz_common::properties::StatusProperty::Error, "Topic",
+      QString("Error: ") + e.what());
   }
 }
 

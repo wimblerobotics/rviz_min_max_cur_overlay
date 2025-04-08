@@ -6,6 +6,7 @@
     <description>
       Displays min/max/current values as an overlay.
     </description>
-    <message_type>rviz_min_max_cur_overlay/msg/MinMaxCurr</message_type>
+    <!-- Specify message type for topic selection -->
+    <message_type>rviz_min_max_cur_overlay/MinMaxCurr</message_type>
   </class>
 </library>
