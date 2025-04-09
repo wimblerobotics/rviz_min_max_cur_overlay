@@ -5,13 +5,11 @@
 #include <string>
 
 // RViz includes
-#include <rviz_common/display.hpp>
-#include <rviz_common/properties/ros_topic_property.hpp>
+#include <rviz_common/ros_topic_display.hpp>
 #include <rviz_common/properties/int_property.hpp>
 #include <rviz_common/properties/float_property.hpp>
 #include <rviz_common/properties/enum_property.hpp>
 #include <rviz_common/properties/color_property.hpp>
-#include <rviz_common/properties/string_property.hpp>
 
 // ROS message includes
 #include <std_msgs/msg/color_rgba.hpp>
@@ -21,14 +19,11 @@
 #include <OgreSceneManager.h>
 
 // Qt includes
-class QWidget;
-class QPainter;
+#include <QWidget>
+#include <QPainter>
 
 // Our message type
 #include "rviz_min_max_cur_overlay/msg/min_max_curr.hpp"
-
-// Custom widget includes
-#include "rviz_min_max_cur_overlay/topic_input_widget.hpp"
 
 namespace rviz_min_max_cur_overlay
 {
@@ -37,11 +32,14 @@ namespace rviz_min_max_cur_overlay
  * @class OverlayDisplay
  * @brief Display plugin for RViz that shows min/max/current values as an overlay
  */
-class OverlayDisplay : public rviz_common::Display
+class OverlayDisplay : public rviz_common::RosTopicDisplay<rviz_min_max_cur_overlay::msg::MinMaxCurr>
 {
   Q_OBJECT
 
 public:
+  // Define the base class typedef
+  typedef rviz_common::RosTopicDisplay<rviz_min_max_cur_overlay::msg::MinMaxCurr> RTDClass;
+
   /**
    * @brief Constructor
    */
@@ -82,33 +80,27 @@ protected:
    * @brief Called when the fixed frame changes
    */
   void fixedFrameChanged() override;
+  
+  /**
+   * @brief Process incoming messages
+   */
+  void processMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr msg) override;
 
 private Q_SLOTS:
-  /**
-   * @brief Update the subscribed topic
-   */
-  void updateTopic();
-  
   /**
    * @brief Update the visualization
    */
   void updateVisualization();
 
 private:
-  void unsubscribe();
   bool validateMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
   void drawHorizontal(QPainter & painter, 
                      const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
   void drawVertical(QPainter & painter, 
                    const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
-  void processMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg);
   QColor toQColor(const std_msgs::msg::ColorRGBA & color);
 
-  // ROS Subscriber
-  rclcpp::Subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>::SharedPtr subscriber_;
-  
   // Properties
-  rviz_common::properties::RosTopicProperty* topic_property_{nullptr}; // Use RosTopicProperty
   rviz_common::properties::IntProperty* width_property_{nullptr};
   rviz_common::properties::IntProperty* height_property_{nullptr};
   rviz_common::properties::EnumProperty* orientation_property_{nullptr};
@@ -119,16 +111,13 @@ private:
   rviz_common::properties::ColorProperty* background_color_property_{nullptr};
   rviz_common::properties::ColorProperty* text_color_property_{nullptr};
 
-  // Custom Topic Input Widget
-  TopicInputWidget* topic_input_widget_{nullptr};
-  QWidget* property_panel_{nullptr};
-
   // Message storage
   rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr last_msg_;
 
   // Rendering objects
   Ogre::SceneNode* scene_node_{nullptr};
   std::unique_ptr<QWidget> overlay_widget_;
+  QWidget* property_panel_{nullptr};
 };
 
 }  // namespace rviz_min_max_cur_overlay

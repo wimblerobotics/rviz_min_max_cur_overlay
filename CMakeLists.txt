@@ -31,7 +31,6 @@ find_package(rviz_rendering REQUIRED)
 find_package(rviz_default_plugins REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(std_msgs REQUIRED)
-# find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(OGRE REQUIRED)
 find_package(rviz_ogre_vendor REQUIRED)
@@ -39,7 +38,7 @@ find_package(rviz_ogre_vendor REQUIRED)
 # Define message
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MinMaxCurr.msg"
-  DEPENDENCIES std_msgs #geometry_msgs
+  DEPENDENCIES std_msgs
 )
 
 # Get typesupport
@@ -49,8 +48,6 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typ
 add_library(overlay_display SHARED
   src/overlay_display.cpp
   include/rviz_min_max_cur_overlay/overlay_display.hpp
-  src/topic_input_widget.cpp
-  include/rviz_min_max_cur_overlay/topic_input_widget.hpp
 )
 
 # Set library properties
@@ -79,7 +76,6 @@ ament_target_dependencies(overlay_display
   rviz_default_plugins
   pluginlib
   std_msgs
-  # geometry_msgs
 )
 
 # Link libraries
@@ -87,18 +83,12 @@ target_link_libraries(overlay_display
   Qt5::Widgets
   ${OGRE_LIBRARIES}
   "${cpp_typesupport_target}"
-  rclcpp::rclcpp
-  rviz_common::rviz_common
-  rviz_rendering::rviz_rendering
-  rviz_default_plugins::rviz_default_plugins
-  pluginlib::pluginlib
-  ${PROJECT_NAME}__rosidl_typesupport_cpp
 )
 
 # Ensure message generation completes before building the plugin
 add_dependencies(overlay_display ${PROJECT_NAME}__rosidl_typesupport_cpp)
 
-# Installation
+# Installation - Fix: Remove duplicate installation of overlay_display target
 install(TARGETS overlay_display
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
@@ -110,17 +100,13 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(FILES plugins/plugin_description.xml
+# Install plugin_description.xml - Fix: Remove duplicate installation
+install(FILES plugin_description.xml
   DESTINATION share/${PROJECT_NAME}
 )
 
-# Install message interfaces
-install(DIRECTORY msg/
-  DESTINATION share/${PROJECT_NAME}/msg
-)
-
 # Export plugin
-pluginlib_export_plugin_description_file(rviz_common plugins/plugin_description.xml)
+pluginlib_export_plugin_description_file(rviz_common plugin_description.xml)
 
 # Export dependencies
 ament_export_targets(export_${PROJECT_NAME})
@@ -133,7 +119,6 @@ ament_export_dependencies(
   pluginlib
   std_msgs
   rosidl_default_runtime
-  # geometry_msgs
 )
 
 ament_package()

@@ -1,5 +1,4 @@
 #include "rviz_min_max_cur_overlay/overlay_display.hpp"
-#include "rviz_min_max_cur_overlay/topic_input_widget.hpp"
 
 // Export the plugin class first to ensure proper symbol linkage
 #include <pluginlib/class_list_macros.hpp>
@@ -37,19 +36,11 @@ namespace rviz_min_max_cur_overlay
 {
 
 OverlayDisplay::OverlayDisplay()
-: Display()
 {
-  // No more RosTopicProperty, using custom widget
-  topic_input_widget_ = new TopicInputWidget();
+  // Add debug output to see if the constructor is being called
+  RCLCPP_INFO(rclcpp::get_logger("OverlayDisplay"), "OverlayDisplay constructor called");
 
-  // Create the topic property with the correct message type
-  topic_property_ = new rviz_common::properties::RosTopicProperty(
-    "Topic", "",
-    QString::fromStdString("rviz_min_max_cur_overlay/MinMaxCurr"),
-    "Topic with min/max/current values to display",
-    this, SLOT(updateTopic()));
-
-  // Initialize other properties
+  // Initialize properties
   width_property_ = new rviz_common::properties::IntProperty(
     "Width", 200, "Width of the overlay in pixels", this, SLOT(updateVisualization()));
   width_property_->setMin(10);
@@ -89,20 +80,20 @@ OverlayDisplay::OverlayDisplay()
     SLOT(updateVisualization()));
 }
 
-// Explicitly define the destructor
 OverlayDisplay::~OverlayDisplay()
 {
-  unsubscribe();
   if (scene_node_ && scene_manager_) {
     scene_manager_->destroySceneNode(scene_node_);
     scene_node_ = nullptr;
   }
-  delete topic_input_widget_;
 }
 
 void OverlayDisplay::onInitialize()
 {
-  Display::onInitialize();
+  // Add debug output
+  RCLCPP_INFO(rclcpp::get_logger("OverlayDisplay"), "OverlayDisplay::onInitialize called");
+
+  RTDClass::onInitialize();  // Call the parent class initialization
 
   if (!scene_manager_) {
     setStatus(rviz_common::properties::StatusProperty::Error, "Scene Manager", "No scene manager found");
@@ -120,21 +111,27 @@ void OverlayDisplay::onInitialize()
   // Create a widget to hold the layout
   property_panel_ = new QWidget();
   QVBoxLayout *layout = new QVBoxLayout(property_panel_);
-  layout->addWidget(topic_input_widget_);
-
-  // Connect the topicChanged signal to the updateTopic slot
-  connect(topic_input_widget_, &TopicInputWidget::topicChanged, this, &OverlayDisplay::updateTopic);
 
   // Ensure the widget is hidden initially
   overlay_widget_->hide();
+}
 
-  // Create an initial subscription
-  updateTopic();
+void OverlayDisplay::processMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr msg)
+{
+  RCLCPP_INFO(rclcpp::get_logger("OverlayDisplay"), "Processing message: min=%f, max=%f, current=%f", msg->min, msg->max, msg->current);
+
+  if (!msg || !validateMessage(msg)) {
+    RCLCPP_ERROR(rclcpp::get_logger("OverlayDisplay"), "Invalid message received");
+    return;
+  }
+
+  last_msg_ = msg;
+  updateVisualization();
 }
 
 void OverlayDisplay::onEnable()
 {
-  Display::onEnable();
+  RTDClass::onEnable();
   if (overlay_widget_) {
     overlay_widget_->show();
   }
@@ -143,7 +140,7 @@ void OverlayDisplay::onEnable()
 
 void OverlayDisplay::onDisable()
 {
-  Display::onDisable();
+  RTDClass::onDisable();
   if (overlay_widget_) {
     overlay_widget_->hide();
   }
@@ -151,13 +148,8 @@ void OverlayDisplay::onDisable()
 
 void OverlayDisplay::reset()
 {
-  Display::reset();
+  RTDClass::reset();
   updateVisualization();
-}
-
-void OverlayDisplay::unsubscribe()
-{
-  subscriber_.reset();
 }
 
 void OverlayDisplay::update(float wall_dt, float ros_dt)
@@ -188,12 +180,6 @@ bool OverlayDisplay::validateMessage(const rviz_min_max_cur_overlay::msg::MinMax
   }
 
   return true;
-}
-
-void OverlayDisplay::processMessage(const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr & msg)
-{
-  last_msg_ = msg;
-  updateVisualization();
 }
 
 QColor OverlayDisplay::toQColor(const std_msgs::msg::ColorRGBA & color)
@@ -297,11 +283,15 @@ void OverlayDisplay::drawVertical(
 
 void OverlayDisplay::updateVisualization()
 {
+  RCLCPP_INFO(rclcpp::get_logger("OverlayDisplay"), "Updating visualization");
+
   if (!overlay_widget_) {
+    RCLCPP_ERROR(rclcpp::get_logger("OverlayDisplay"), "Overlay widget is null");
     return;
   }
 
   if (!last_msg_) {
+    RCLCPP_ERROR(rclcpp::get_logger("OverlayDisplay"), "No message available for visualization");
     overlay_widget_->hide();
     return;
   }
@@ -312,6 +302,8 @@ void OverlayDisplay::updateVisualization()
   const QColor bg_color = background_color_property_->getColor();
   const QColor text_color = text_color_property_->getColor();
   const bool is_horizontal = orientation_property_->getOptionInt() == 0;
+
+  RCLCPP_INFO(rclcpp::get_logger("OverlayDisplay"), "Visualization parameters: width=%d, height=%d, is_horizontal=%d", width, height, is_horizontal);
 
   overlay_widget_->setFixedSize(width, height);
 
@@ -336,54 +328,9 @@ void OverlayDisplay::updateVisualization()
   overlay_widget_->setPalette(palette);
   overlay_widget_->show();
   overlay_widget_->update();
-}
 
-void OverlayDisplay::updateTopic()
-{
-  unsubscribe();
-
-  if (!isEnabled()) {
-    return;
-  }
-
-  const std::string topic_str = topic_input_widget_->getTopic();
-  if (topic_str.empty()) {
-    setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", "No topic set");
-    return;
-  }
-
-  try {
-    if (!context_) {
-      throw std::runtime_error("No valid display context");
-    }
-
-    auto node_abstraction = context_->getRosNodeAbstraction().lock();
-    if (!node_abstraction) {
-      throw std::runtime_error("No ROS node abstraction");
-    }
-
-    auto node = node_abstraction->get_raw_node();
-    if (!node) {
-      throw std::runtime_error("No ROS node");
-    }
-
-    // Create the subscription
-    rclcpp::QoS qos(10);
-    subscriber_ = node->create_subscription<rviz_min_max_cur_overlay::msg::MinMaxCurr>(
-      topic_str,
-      qos,
-      [this](const rviz_min_max_cur_overlay::msg::MinMaxCurr::ConstSharedPtr msg) {
-        if (msg) {
-          this->processMessage(msg);
-        }
-      });
-
-    setStatus(rviz_common::properties::StatusProperty::Ok, "Topic", QString::fromStdString(topic_str));
-  } catch (const std::exception & e) {
-    setStatus(
-      rviz_common::properties::StatusProperty::Error, "Topic",
-      QString("Error: ") + e.what());
-  }
+  // Debug: Check widget visibility and parent
+  RCLCPP_INFO(rclcpp::get_logger("OverlayDisplay"), "Widget visibility: %d, parent: %p", overlay_widget_->isVisible(), overlay_widget_->parent());
 }
 
 void OverlayDisplay::fixedFrameChanged()
